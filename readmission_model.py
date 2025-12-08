@@ -113,36 +113,93 @@ class DateBasedTimeSeriesSplitter:
             Indices for testing data
         """
         dates = pd.to_datetime(df[date_column])
-        
+
         min_date = dates.min().normalize()
         max_date = dates.max().normalize()
-        
+
         date_range = pd.date_range(start=min_date, end=max_date, freq='D')
-        
+
         splitter = SlidingWindowSplitter(
             window_length=self.window_length,
             fh=self.fh,
             step_length=self.step_length,
             start_with_window=True
         )
-        
+
         date_series = pd.Series(date_range)
-        
+
         for train_date_idx, test_date_idx in splitter.split(date_series):
             train_start_date = date_range[train_date_idx[0]]
             train_end_date = date_range[train_date_idx[-1]]
-            
+
             test_start_date = date_range[test_date_idx[0]]
             test_end_date = test_start_date + pd.Timedelta(days=self.test_window_length - 1)
-            
+
             train_mask = (dates >= train_start_date) & (dates <= train_end_date)
             test_mask = (dates >= test_start_date) & (dates <= test_end_date)
-            
+
             train_indices = np.where(train_mask)[0]
             test_indices = np.where(test_mask)[0]
-            
+
             if len(train_indices) > 0 and len(test_indices) > 0:
                 yield train_indices, test_indices
+
+
+def generate_lift_table(y_true, y_pred_proba, fold_num=None, positive_class_name='Positive'):
+    """
+    Generate and print a lift table for binary classification model evaluation.
+
+    Parameters:
+    -----------
+    y_true : array-like
+        True binary labels (0 or 1)
+    y_pred_proba : array-like
+        Predicted probabilities for the positive class
+    fold_num : int, optional
+        Fold number for display purposes (e.g., in cross-validation)
+    positive_class_name : str, default='Positive'
+        Name of the positive class for display purposes
+
+    Returns:
+    --------
+    None (prints the lift table)
+    """
+    # Create dataframe for lift analysis
+    lift_df = pd.DataFrame({
+        'actual': y_true,
+        'predicted_proba': y_pred_proba
+    })
+
+    # Sort by predicted probability descending
+    lift_df = lift_df.sort_values('predicted_proba', ascending=False).reset_index(drop=True)
+
+    # Create deciles
+    lift_df['decile'] = pd.qcut(lift_df['predicted_proba'], q=10, labels=False, duplicates='drop') + 1
+
+    # Calculate lift statistics by decile
+    fold_text = f"Fold {fold_num} " if fold_num is not None else ""
+    print(f"\n{fold_text}Lift Table:")
+    print(f"{'Decile':<8} {'Min Score':<12} {'Max Score':<12} {'Count':<8} {positive_class_name + ' Rate':<15} {'Lift':<8} {'Cum Recall':<12}")
+    print("-" * 87)
+
+    overall_rate = lift_df['actual'].mean()
+    total_positive = lift_df['actual'].sum()
+    cumulative_positive = 0
+
+    for decile in sorted(lift_df['decile'].unique(), reverse=True):
+        decile_data = lift_df[lift_df['decile'] == decile]
+        count = len(decile_data)
+        decile_positive = decile_data['actual'].sum()
+        cumulative_positive += decile_positive
+        positive_rate = decile_data['actual'].mean()
+        lift = positive_rate / overall_rate if overall_rate > 0 else 0
+        min_score = decile_data['predicted_proba'].min()
+        max_score = decile_data['predicted_proba'].max()
+        cum_recall = cumulative_positive / total_positive if total_positive > 0 else 0
+
+        print(f"{int(decile):<8} {min_score:<12.4f} {max_score:<12.4f} {count:<8} {positive_rate:<15.2%} {lift:<8.2f} {cum_recall:<12.2%}")
+
+    print(f"\nOverall {positive_class_name.lower()} rate: {overall_rate:.2%}")
 
 
 print("Loading data...")
@@ -243,46 +300,13 @@ all_y_pred = []
 for fold_num, ((train_idx, test_idx), estimator) in enumerate(zip(splits, cv_results['estimator']), 1):
     X_test_fold = X.iloc[test_idx]
     y_test_fold = y.iloc[test_idx]
-    
+
     y_pred_proba_fold = estimator.predict_proba(X_test_fold)[:, 1]
     y_pred_fold = estimator.predict(X_test_fold)
-    
-    # Create dataframe for lift analysis
-    lift_df = pd.DataFrame({
-        'actual': y_test_fold.values,
-        'predicted_proba': y_pred_proba_fold
-    })
-    
-    # Sort by predicted probability descending
-    lift_df = lift_df.sort_values('predicted_proba', ascending=False).reset_index(drop=True)
-    
-    # Create deciles
-    lift_df['decile'] = pd.qcut(lift_df['predicted_proba'], q=10, labels=False, duplicates='drop') + 1
-    
-    # Calculate lift statistics by decile
-    print(f"\nFold {fold_num} Lift Table:")
-    print(f"{'Decile':<8} {'Min Score':<12} {'Max Score':<12} {'Count':<8} {'Readmit Rate':<15} {'Lift':<8} {'Cum Recall':<12}")
-    print("-" * 87)
-    
-    overall_rate = lift_df['actual'].mean()
-    total_readmissions = lift_df['actual'].sum()
-    cumulative_readmissions = 0
-    
-    for decile in sorted(lift_df['decile'].unique(), reverse=True):
-        decile_data = lift_df[lift_df['decile'] == decile]
-        count = len(decile_data)
-        decile_readmissions = decile_data['actual'].sum()
-        cumulative_readmissions += decile_readmissions
-        readmit_rate = decile_data['actual'].mean()
-        lift = readmit_rate / overall_rate if overall_rate > 0 else 0
-        min_score = decile_data['predicted_proba'].min()
-        max_score = decile_data['predicted_proba'].max()
-        cum_recall = cumulative_readmissions / total_readmissions if total_readmissions > 0 else 0
-        
-        print(f"{int(decile):<8} {min_score:<12.4f} {max_score:<12.4f} {count:<8} {readmit_rate:<15.2%} {lift:<8.2f} {cum_recall:<12.2%}")
-    
-    print(f"\nOverall readmission rate: {overall_rate:.2%}")
-    
+
+    # Generate lift table for this fold
+    generate_lift_table(y_test_fold.values, y_pred_proba_fold, fold_num=fold_num, positive_class_name='Readmission')
+
     all_y_true.extend(y_test_fold)
     all_y_pred.extend(y_pred_fold)
 
