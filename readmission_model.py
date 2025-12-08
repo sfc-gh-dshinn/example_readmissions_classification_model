@@ -65,17 +65,17 @@ NUMERICAL_FEATURES = [
 class DateBasedTimeSeriesSplitter:
     """
     A time-series cross-validator that splits data based on actual date ranges.
-    
-    This splitter creates a complete date range from the data and uses 
-    SlidingWindowSplitter on unique dates (1 row = 1 date), then filters 
+
+    This splitter creates a complete date range from the data and uses
+    SlidingWindowSplitter on unique dates (1 row = 1 date), then filters
     the actual data to return indices corresponding to those date ranges.
-    
+
     This approach handles:
     - Multiple rows per date
     - Missing dates in the data
     - Proper time-based train/test splits
     """
-    
+
     def __init__(self, window_length, fh, test_window_length, step_length):
         """
         Parameters:
@@ -93,18 +93,18 @@ class DateBasedTimeSeriesSplitter:
         self.fh = fh
         self.test_window_length = test_window_length
         self.step_length = step_length
-    
+
     def split(self, df, date_column='date'):
         """
         Generate train/test indices based on date ranges.
-        
+
         Parameters:
         -----------
         df : pd.DataFrame
             DataFrame containing the data with a date column
         date_column : str
             Name of the date column
-            
+
         Yields:
         -------
         train_indices : np.array
@@ -204,7 +204,7 @@ print("\nEnumerating split date ranges...")
 for fold_num, (train_idx, test_idx) in enumerate(splits, 1):
     train_dates = df['date'].iloc[train_idx]
     test_dates = df['date'].iloc[test_idx]
-    
+
     print(f"\n{'='*60}")
     print(f"Fold {fold_num}")
     print(f"{'='*60}")
