@@ -16,5 +16,5 @@ $ venv/bin/pip install -r requirements.txt
 
 ## Run model
 ```
-$ python readmission_model.py
+$ venv/bin/python readmission_model.py
 ```
