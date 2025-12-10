@@ -111,6 +111,8 @@ NUMERICAL_FEATURES = [
     'time_in_hospital',
 ]
 
+feature_names = CATEGORICAL_FEATURES + NUMERICAL_FEATURES
+
 # Below this line is unnecessary to edit to make it compatible with
 # another dataset
 
@@ -349,10 +351,8 @@ def generate_lift_table(y_true, y_pred_proba, fold_num=None, positive_class_name
 
 df = load_data(DATA_FILE, DATE_COLUMN, TARGET_COLUMN)
 
-X = df.drop(columns=[TARGET_COLUMN, 'target', DATE_COLUMN, 'encounter_id'])
-y = df['target']
-
-feature_names = CATEGORICAL_FEATURES + NUMERICAL_FEATURES
+X = df[feature_names].copy()
+y = df['target'].copy()
 
 print("\nSetting up time-series cross-validation...")
 splitter = DateBasedTimeSeriesSplitter(
