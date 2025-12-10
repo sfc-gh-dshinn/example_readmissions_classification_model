@@ -178,6 +178,65 @@ class DateBasedTimeSeriesSplitter:
                 yield train_indices, test_indices
 
 
+def generate_classification_report(y_true, y_pred, negative_class_name='Negative', positive_class_name='Positive'):
+    """
+    Generate and print a classification report for binary classification model evaluation.
+
+    Parameters:
+    -----------
+    y_true : array-like
+        True binary labels (0 or 1)
+    y_pred : array-like
+        Predicted binary labels (0 or 1)
+    negative_class_name : str, default='Negative'
+        Name of the negative class (class 0) for display purposes
+    positive_class_name : str, default='Positive'
+        Name of the positive class (class 1) for display purposes
+
+    Returns:
+    --------
+    None (prints the classification report)
+    """
+    print(f"{'='*60}")
+    print(f"CLASSIFICATION REPORT")
+    print(f"{'='*60}")
+    print(classification_report(y_true, y_pred, target_names=[negative_class_name, positive_class_name]))
+
+
+def generate_confusion_matrix(y_true, y_pred, negative_class_name='Negative', positive_class_name='Positive'):
+    """
+    Generate and print a confusion matrix for binary classification model evaluation.
+
+    Parameters:
+    -----------
+    y_true : array-like
+        True binary labels (0 or 1)
+    y_pred : array-like
+        Predicted binary labels (0 or 1)
+    negative_class_name : str, default='Negative'
+        Name of the negative class (class 0) for display purposes
+    positive_class_name : str, default='Positive'
+        Name of the positive class (class 1) for display purposes
+
+    Returns:
+    --------
+    None (prints the confusion matrix and interpretation)
+    """
+    print(f"{'='*60}")
+    print(f"CONFUSION MATRIX")
+    print(f"{'='*60}")
+    cm = confusion_matrix(y_true, y_pred)
+    print(f"\nConfusion Matrix:")
+    print(f"                    Predicted {negative_class_name:<15} Predicted {positive_class_name}")
+    print(f"Actual {negative_class_name:<13} {cm[0, 0]:8d}        {cm[0, 1]:8d}")
+    print(f"Actual {positive_class_name:<13} {cm[1, 0]:8d}        {cm[1, 1]:8d}")
+    print(f"\nInterpretation:")
+    print(f"True Negatives (TN):  {cm[0, 0]:,} - Correctly predicted {negative_class_name.lower()}")
+    print(f"False Positives (FP): {cm[0, 1]:,} - Incorrectly predicted {positive_class_name.lower()}")
+    print(f"False Negatives (FN): {cm[1, 0]:,} - Incorrectly predicted {negative_class_name.lower()}")
+    print(f"True Positives (TP):  {cm[1, 1]:,} - Correctly predicted {positive_class_name.lower()}")
+
+
 def generate_lift_table(y_true, y_pred_proba, fold_num=None, positive_class_name='Positive'):
     """
     Generate and print a lift table for binary classification model evaluation.
@@ -355,24 +414,11 @@ for i, auc in enumerate(auc_scores, 1):
 print(f"\nAverage AUC: {np.mean(auc_scores):.4f}")
 print(f"Standard Deviation: {np.std(auc_scores):.4f}")
 
-print(f"\n{'='*60}")
-print("CLASSIFICATION REPORT (Consolidated Across All Folds)")
-print(f"{'='*60}")
-print(classification_report(all_y_true, all_y_pred, target_names=['No Readmission', 'Readmission']))
+print()
+generate_classification_report(all_y_true, all_y_pred, negative_class_name='No Readmission', positive_class_name='Readmission')
 
-print(f"{'='*60}")
-print("CONFUSION MATRIX (Consolidated Across All Folds)")
-print(f"{'='*60}")
-cm = confusion_matrix(all_y_true, all_y_pred)
-print("\nConfusion Matrix:")
-print(f"                    Predicted No    Predicted Yes")
-print(f"Actual No (0)       {cm[0, 0]:8d}        {cm[0, 1]:8d}")
-print(f"Actual Yes (1)      {cm[1, 0]:8d}        {cm[1, 1]:8d}")
-print(f"\nInterpretation:")
-print(f"True Negatives (TN):  {cm[0, 0]:,} - Correctly predicted no readmission")
-print(f"False Positives (FP): {cm[0, 1]:,} - Incorrectly predicted readmission")
-print(f"False Negatives (FN): {cm[1, 0]:,} - Incorrectly predicted no readmission")
-print(f"True Positives (TP):  {cm[1, 1]:,} - Correctly predicted readmission")
+print()
+generate_confusion_matrix(all_y_true, all_y_pred, negative_class_name='No Readmission', positive_class_name='Readmission')
 
 print(f"\n{'='*60}")
 print("FEATURE IMPORTANCE (Averaged Across Folds, Normalized)")
