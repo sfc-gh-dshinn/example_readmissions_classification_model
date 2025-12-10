@@ -24,23 +24,28 @@ The program must implement a **`DateBasedTimeSeriesSplitter`** class that perfor
 
 #### 2.1 DateBasedTimeSeriesSplitter Class
 
-**Purpose:** A custom splitter that wraps `sktime.split.slidingwindow.SlidingWindowSplitter` to operate on actual calendar dates rather than row indices.
+**Purpose:** A custom splitter that generates date-based time-series cross-validation splits by working backwards from the last date in the dataset to ensure the final test partition ends exactly on the last date.
 
 **Implementation Approach:**
-1. **Create Date Range:** Generate a complete date range (one row per date) from the minimum to maximum date in the dataset using `pd.date_range()` with daily frequency.
-2. **Apply SlidingWindowSplitter:** Use `SlidingWindowSplitter` on this date range to determine train/test date boundaries.
-3. **Filter Data by Dates:** For each fold, filter the actual data rows based on the train/test date ranges returned by the splitter.
+1. **Anchor to End Date:** Calculate split positions working backwards from the maximum date in the dataset
+2. **Calculate First Split Start:** Determine where the first training window must start to accommodate all n_splits
+3. **Validate Date Range:** Ensure all partitions fit within the available data range, raising ValueError if not
+4. **Generate Splits Forward:** Create n_splits going forward from the calculated starting position
+5. **Filter Data by Dates:** For each fold, filter the actual data rows based on the calculated train/test date ranges
 
 **Benefits:**
 - Handles multiple rows per date correctly
 - Handles missing dates in the data
 - Provides true calendar-based time-series splits (e.g., 547 days = 18 months)
+- Ensures final test partition ends exactly on the last date of the data
+- Validates that all splits fit within the data range before execution
 
 **Parameters:**
 * `window_length` (int): Training window length in **days** (not rows). Set to **547 days** (18 months).
 * `fh` (int): Forecast horizon in **days** - the gap between the end of training and start of testing. Set to **30 days**.
 * `test_window_length` (int): Test window length in **days**. Set to **60 days**.
 * `step_length` (int): Step size between consecutive training windows in **days**. Set to **90 days** to ensure non-overlapping test windows.
+* `n_splits` (int): Number of splits to generate. Set to **5**.
 
 **Method Signature:**
 ```python
@@ -48,9 +53,15 @@ def split(self, df, date_column='date'):
     """
     Generate train/test indices based on date ranges.
     
+    Works backwards from the last date to ensure the final test partition
+    ends exactly on the last date of the data.
+    
     Yields:
         train_indices: np.array of row indices for training
         test_indices: np.array of row indices for testing
+        
+    Raises:
+        ValueError: If all partitions do not fit within the date range of the data
     """
 ```
 
@@ -63,11 +74,14 @@ def split(self, df, date_column='date'):
 * **Step Length:** **90 days** to ensure test windows do not overlap.
 
 **Expected Behavior:**
+- Works backwards from the last date to anchor the final test partition
 - Each fold trains on 547 days (18 months) of data
 - Waits 30 days (forecast horizon)
 - Tests on the next 60 days
 - Next fold starts 90 days after the previous fold's training start
 - All test windows are non-overlapping
+- Final test window ends exactly on the last date in the dataset
+- Validates that all splits fit within the data range and raises ValueError if they don't
 
 ---
 
@@ -202,9 +216,10 @@ The following columns must be **excluded** from the feature set:
 3. `DateBasedTimeSeriesSplitter` class definition
 4. Main execution logic:
    - Load and prepare data
-   - Initialize date-based splitter
+   - Initialize date-based splitter with n_splits=5
    - Create preprocessing and model pipeline
-   - Generate cross-validation splits (enumerate to display date ranges)
+   - Generate cross-validation splits using list(splitter.split())
+   - Enumerate splits to display date ranges
    - Execute `cross_validate` with full pipeline
    - Generate lift analysis for each fold (with predictions and probabilities)
    - Consolidate all predictions across folds
@@ -217,5 +232,4 @@ The following columns must be **excluded** from the feature set:
 **Key Libraries:**
 - pandas, numpy
 - sklearn.pipeline, sklearn.preprocessing, sklearn.model_selection, sklearn.metrics
-- sktime.split.slidingwindow
 - xgboost
