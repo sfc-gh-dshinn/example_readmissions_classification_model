@@ -4,7 +4,6 @@ from sklearn.pipeline import Pipeline, FeatureUnion
 from sklearn.preprocessing import FunctionTransformer, OrdinalEncoder
 from sklearn.model_selection import cross_validate
 from sklearn.metrics import roc_auc_score, make_scorer, classification_report, confusion_matrix
-from sktime.split.slidingwindow import SlidingWindowSplitter
 from xgboost import XGBClassifier
 
 
@@ -66,17 +65,18 @@ class DateBasedTimeSeriesSplitter:
     """
     A time-series cross-validator that splits data based on actual date ranges.
 
-    This splitter creates a complete date range from the data and uses
-    SlidingWindowSplitter on unique dates (1 row = 1 date), then filters
-    the actual data to return indices corresponding to those date ranges.
+    This splitter works backwards from the last date in the dataset to ensure
+    the final test partition ends exactly on the last date. It then generates
+    the specified number of splits with proper temporal ordering.
 
     This approach handles:
     - Multiple rows per date
     - Missing dates in the data
     - Proper time-based train/test splits
+    - Ensures full data coverage by anchoring to the end date
     """
 
-    def __init__(self, window_length, fh, test_window_length, step_length):
+    def __init__(self, window_length, fh, test_window_length, step_length, n_splits=5):
         """
         Parameters:
         -----------
@@ -88,15 +88,21 @@ class DateBasedTimeSeriesSplitter:
             Test window length in days
         step_length : int
             Step size between consecutive training windows in days
+        n_splits : int, default=5
+            Number of splits to generate
         """
         self.window_length = window_length
         self.fh = fh
         self.test_window_length = test_window_length
         self.step_length = step_length
+        self.n_splits = n_splits
 
     def split(self, df, date_column='date'):
         """
         Generate train/test indices based on date ranges.
+
+        Works backwards from the last date to ensure the final test partition
+        ends exactly on the last date of the data.
 
         Parameters:
         -----------
@@ -111,32 +117,59 @@ class DateBasedTimeSeriesSplitter:
             Indices for training data
         test_indices : np.array
             Indices for testing data
+
+        Raises:
+        -------
+        ValueError:
+            If all partitions do not fit within the date range of the data
         """
         dates = pd.to_datetime(df[date_column])
-
         min_date = dates.min().normalize()
         max_date = dates.max().normalize()
 
-        date_range = pd.date_range(start=min_date, end=max_date, freq='D')
+        # Calculate minimum required date range for all splits
+        # Final fold needs: window_length + fh + test_window_length
+        # Each previous fold adds: step_length
+        required_days = self.window_length + self.fh + self.test_window_length + self.step_length * (self.n_splits - 1)
+        available_days = (max_date - min_date).days + 1
 
-        splitter = SlidingWindowSplitter(
-            window_length=self.window_length,
-            fh=self.fh,
-            step_length=self.step_length,
-            start_with_window=True
-        )
+        if available_days < required_days:
+            raise ValueError(
+                f"Cannot fit {self.n_splits} splits within the available data. "
+                f"Required: {required_days} days, Available: {available_days} days. "
+                f"Reduce n_splits, window_length, test_window_length, or step_length."
+            )
 
-        date_series = pd.Series(date_range)
+        # Calculate where the final test window should end (on max_date)
+        final_test_end = max_date
+        final_test_start = final_test_end - pd.Timedelta(days=self.test_window_length - 1)
 
-        for train_date_idx, test_date_idx in splitter.split(date_series):
-            train_start_date = date_range[train_date_idx[0]]
-            train_end_date = date_range[train_date_idx[-1]]
+        # Calculate where the final training window should end (before forecast horizon)
+        final_train_end = final_test_start - pd.Timedelta(days=self.fh)
+        final_train_start = final_train_end - pd.Timedelta(days=self.window_length - 1)
 
-            test_start_date = date_range[test_date_idx[0]]
-            test_end_date = test_start_date + pd.Timedelta(days=self.test_window_length - 1)
+        # Calculate starting position for first split (working backwards)
+        first_train_start = final_train_start - pd.Timedelta(days=self.step_length * (self.n_splits - 1))
 
-            train_mask = (dates >= train_start_date) & (dates <= train_end_date)
-            test_mask = (dates >= test_start_date) & (dates <= test_end_date)
+        # Verify first split starts within or after the data range
+        if first_train_start < min_date:
+            raise ValueError(
+                f"First training window starts at {first_train_start.date()}, "
+                f"which is before the data starts at {min_date.date()}. "
+                f"Cannot fit {self.n_splits} splits. Reduce n_splits or step_length."
+            )
+
+        # Generate splits going forward from calculated starting position
+        for i in range(self.n_splits):
+            train_start = first_train_start + pd.Timedelta(days=self.step_length * i)
+            train_end = train_start + pd.Timedelta(days=self.window_length - 1)
+
+            test_start = train_end + pd.Timedelta(days=self.fh)
+            test_end = test_start + pd.Timedelta(days=self.test_window_length - 1)
+
+            # Filter data by date ranges
+            train_mask = (dates >= train_start) & (dates <= train_end)
+            test_mask = (dates >= test_start) & (dates <= test_end)
 
             train_indices = np.where(train_mask)[0]
             test_indices = np.where(test_mask)[0]
@@ -228,7 +261,8 @@ splitter = DateBasedTimeSeriesSplitter(
     window_length=547,  # 18 months (18 * 30.42 ≈ 547 days)
     fh=30,
     test_window_length=60,
-    step_length=90
+    step_length=90,
+    n_splits=5
 )
 
 print("Setting up preprocessing and model pipeline...")
@@ -249,11 +283,7 @@ full_pipeline = Pipeline([
 ])
 
 print("\nGenerating cross-validation splits...")
-splits = []
-for train_idx, test_idx in splitter.split(df, date_column='date'):
-    splits.append((train_idx, test_idx))
-    if len(splits) >= 5:
-        break
+splits = list(splitter.split(df, date_column='date'))
 
 print(f"Generated {len(splits)} splits")
 
