@@ -9,6 +9,7 @@ from xgboost import XGBClassifier
 DATE_COLUMN = 'date'
 DATA_FILE = 'diabetic_data_with_dates.csv'
 TARGET_COLUMN = 'readmitted'
+TARGET_MAPPING_LOGIC = lambda x: 0 if x == 'NO' else 1
 WINDOW_LENGTH = 547  # 18 months (18 * 30.42 ≈ 547 days)
 FORECAST_HORIZON = 30
 TEST_WINDOW_LENGTH = 60
@@ -46,7 +47,7 @@ def load_data(file_path, date_column, target_column):
     df[date_column] = pd.to_datetime(df[date_column])
 
     print("Converting target variable to binary...")
-    df['target'] = (df[target_column] != 'NO').astype(int)
+    df['target'] = df[target_column].apply(TARGET_MAPPING_LOGIC)
 
     print("Sorting by date...")
     df = df.sort_values(date_column).reset_index(drop=True)
