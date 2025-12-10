@@ -6,6 +6,57 @@ from sklearn.model_selection import cross_validate
 from sklearn.metrics import roc_auc_score, make_scorer, classification_report, confusion_matrix
 from xgboost import XGBClassifier
 
+DATE_COLUMN = 'date'
+DATA_FILE = 'diabetic_data_with_dates.csv'
+TARGET_COLUMN = 'readmitted'
+WINDOW_LENGTH = 547  # 18 months (18 * 30.42 ≈ 547 days)
+FORECAST_HORIZON = 30
+TEST_WINDOW_LENGTH = 60
+STEP_LENGTH = 90
+N_SPLITS = 5
+NEGATIVE_CLASS_NAME = 'No Readmission'
+POSITIVE_CLASS_NAME = 'Readmission'
+
+
+def load_data(file_path, date_column, target_column):
+    """
+    Load and preprocess the dataset.
+
+    Parameters:
+    -----------
+    file_path : str
+        Path to the CSV file containing the data
+    date_column : str
+        Name of the date column to parse
+    target_column : str
+        Name of the target column to convert to binary
+
+    Returns:
+    --------
+    df : pd.DataFrame
+        Loaded and preprocessed dataframe with:
+        - Parsed date column
+        - Binary target variable
+        - Sorted by date in ascending order
+    """
+    print("Loading data...")
+    df = pd.read_csv(file_path)
+
+    print("Parsing date column...")
+    df[date_column] = pd.to_datetime(df[date_column])
+
+    print("Converting target variable to binary...")
+    df['target'] = (df[target_column] != 'NO').astype(int)
+
+    print("Sorting by date...")
+    df = df.sort_values(date_column).reset_index(drop=True)
+
+    print(f"Dataset shape: {df.shape}")
+    print(f"Date range: {df[date_column].min()} to {df[date_column].max()}")
+    print(f"Target distribution: {df['target'].value_counts().to_dict()}")
+
+    return df
+
 
 CATEGORICAL_FEATURES = [
     'A1Cresult',
@@ -60,6 +111,8 @@ NUMERICAL_FEATURES = [
     'time_in_hospital',
 ]
 
+# Below this line is unnecessary to edit to make it compatible with
+# another dataset
 
 class DateBasedTimeSeriesSplitter:
     """
@@ -294,34 +347,20 @@ def generate_lift_table(y_true, y_pred_proba, fold_num=None, positive_class_name
     print(f"\nOverall {positive_class_name.lower()} rate: {overall_rate:.2%}")
 
 
-print("Loading data...")
-df = pd.read_csv('diabetic_data_with_dates.csv')
+df = load_data(DATA_FILE, DATE_COLUMN, TARGET_COLUMN)
 
-print("Parsing date column...")
-df['date'] = pd.to_datetime(df['date'])
-
-print("Converting target variable to binary...")
-df['target'] = (df['readmitted'] != 'NO').astype(int)
-
-print("Sorting by date...")
-df = df.sort_values('date').reset_index(drop=True)
-
-print(f"Dataset shape: {df.shape}")
-print(f"Date range: {df['date'].min()} to {df['date'].max()}")
-print(f"Target distribution: {df['target'].value_counts().to_dict()}")
-
-X = df.drop(columns=['readmitted', 'target', 'date', 'encounter_id'])
+X = df.drop(columns=[TARGET_COLUMN, 'target', DATE_COLUMN, 'encounter_id'])
 y = df['target']
 
 feature_names = CATEGORICAL_FEATURES + NUMERICAL_FEATURES
 
 print("\nSetting up time-series cross-validation...")
 splitter = DateBasedTimeSeriesSplitter(
-    window_length=547,  # 18 months (18 * 30.42 ≈ 547 days)
-    fh=30,
-    test_window_length=60,
-    step_length=90,
-    n_splits=5
+    window_length=WINDOW_LENGTH,
+    fh=FORECAST_HORIZON,
+    test_window_length=TEST_WINDOW_LENGTH,
+    step_length=STEP_LENGTH,
+    n_splits=N_SPLITS
 )
 
 print("Setting up preprocessing and model pipeline...")
@@ -342,14 +381,14 @@ full_pipeline = Pipeline([
 ])
 
 print("\nGenerating cross-validation splits...")
-splits = list(splitter.split(df, date_column='date'))
+splits = list(splitter.split(df, date_column=DATE_COLUMN))
 
 print(f"Generated {len(splits)} splits")
 
 print("\nEnumerating split date ranges...")
 for fold_num, (train_idx, test_idx) in enumerate(splits, 1):
-    train_dates = df['date'].iloc[train_idx]
-    test_dates = df['date'].iloc[test_idx]
+    train_dates = df[DATE_COLUMN].iloc[train_idx]
+    test_dates = df[DATE_COLUMN].iloc[test_idx]
 
     print(f"\n{'='*60}")
     print(f"Fold {fold_num}")
@@ -394,7 +433,7 @@ for fold_num, ((train_idx, test_idx), estimator) in enumerate(zip(splits, cv_res
     y_pred_fold = estimator.predict(X_test_fold)
 
     # Generate lift table for this fold
-    generate_lift_table(y_test_fold.values, y_pred_proba_fold, fold_num=fold_num, positive_class_name='Readmission')
+    generate_lift_table(y_test_fold.values, y_pred_proba_fold, fold_num=fold_num, positive_class_name=POSITIVE_CLASS_NAME)
 
     all_y_true.extend(y_test_fold)
     all_y_pred.extend(y_pred_fold)
@@ -415,10 +454,10 @@ print(f"\nAverage AUC: {np.mean(auc_scores):.4f}")
 print(f"Standard Deviation: {np.std(auc_scores):.4f}")
 
 print()
-generate_classification_report(all_y_true, all_y_pred, negative_class_name='No Readmission', positive_class_name='Readmission')
+generate_classification_report(all_y_true, all_y_pred, negative_class_name=NEGATIVE_CLASS_NAME, positive_class_name=POSITIVE_CLASS_NAME)
 
 print()
-generate_confusion_matrix(all_y_true, all_y_pred, negative_class_name='No Readmission', positive_class_name='Readmission')
+generate_confusion_matrix(all_y_true, all_y_pred, negative_class_name=NEGATIVE_CLASS_NAME, positive_class_name=POSITIVE_CLASS_NAME)
 
 print(f"\n{'='*60}")
 print("FEATURE IMPORTANCE (Averaged Across Folds, Normalized)")
