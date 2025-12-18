@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from sklearn.pipeline import Pipeline, FeatureUnion
 from sklearn.preprocessing import FunctionTransformer, OrdinalEncoder
+from sklearn.impute import SimpleImputer
 from sklearn.model_selection import cross_validate
 from sklearn.metrics import roc_auc_score, make_scorer, classification_report, confusion_matrix
 from xgboost import XGBClassifier
@@ -10,6 +11,8 @@ DATE_COLUMN = 'date'
 DATA_FILE = 'diabetic_data_with_dates.csv'
 TARGET_COLUMN = 'readmitted'
 TARGET_MAPPING_LOGIC = lambda x: 0 if x == 'NO' else 1
+CATEGORICAL_MISSING_VALUE = -1
+NUMERICAL_MISSING_VALUE = -9999
 WINDOW_LENGTH = 547  # 18 months (18 * 30.42 ≈ 547 days)
 FORECAST_HORIZON = 30
 TEST_WINDOW_LENGTH = 60
@@ -368,11 +371,11 @@ print("Setting up preprocessing and model pipeline...")
 preprocessing = FeatureUnion([
     ('categorical', Pipeline([
         ('selector', FunctionTransformer(lambda X: X[CATEGORICAL_FEATURES].values, validate=False)),
-        ('encoder', OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1))
+        ('encoder', OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=CATEGORICAL_MISSING_VALUE, encoded_missing_value=CATEGORICAL_MISSING_VALUE))
     ])),
     ('numerical', Pipeline([
         ('selector', FunctionTransformer(lambda X: X[NUMERICAL_FEATURES].values, validate=False)),
-        ('passthrough', FunctionTransformer(lambda x: x, validate=False))
+        ('imputer', SimpleImputer(strategy='constant', fill_value=NUMERICAL_MISSING_VALUE))
     ]))
 ])
 
